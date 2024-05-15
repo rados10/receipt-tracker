@@ -240,5 +240,93 @@ def get_receipt(receipt_id):                                                    
 def get_jwt_identity():                                                                                                                                                                 │
     return jwt.get_jwt_identity()                                                                                                                                                       │
                                                                                                                                                                                         │
+@app.route('/receipts', methods=['GET'])
+@jwt_required()
+def get_receipts():
+    user_id = get_jwt_identity()
+    session = Session(bind=engine)
+    receipts = session.query(Receipt).filter(Receipt.user_id == user_id).all()
+    session.close()
+    return jsonify([receipt.serialize() for receipt in receipts])
+
+@app.route('/receipts/<int:receipt_id>', methods=['GET'])
+@jwt_required()
+def get_receipt_details(receipt_id):
+    user_id = get_jwt_identity()
+    session = Session(bind=engine)
+    receipt = session.query(Receipt).filter(Receipt.id == receipt_id, Receipt.user_id == user_id).first()
+    session.close()
+    if receipt:
+        return jsonify(receipt.serialize())
+    else:
+        return jsonify({'message': 'Receipt not found'}), 404
+    
+
+from datetime import datetime
+
+@app.route('/expenses', methods=['GET'])
+@jwt_required()
+def get_expenses():
+    user_id = get_jwt_identity()
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    if not start_date or not end_date:
+        return jsonify({'message': 'Start date and end date are required'}), 400
+    try:
+        start_date = datetime.strptime(start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date, '%Y-%m-%d')
+    except ValueError:
+        return jsonify({'message': 'Invalid date format, use YYYY-MM-DD'}), 400
+
+    session = Session(bind=engine)
+    expenses = session.query(Receipt).filter(
+        Receipt.user_id == user_id,
+        Receipt.date >= start_date,
+        Receipt.date <= end_date
+    ).all()
+    session.close()
+
+    # Summarize expenses by category
+    summary = {}
+    for receipt in expenses:
+        category = receipt.category
+        summary[category] = summary.get(category, 0) + receipt.total
+
+    return jsonify(summary)
+
+@app.route('/charts/expenses', methods=['GET'])
+@jwt_required()
+def get_expense_chart_data():
+    user_id = get_jwt_identity()
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    if not start_date or not end_date:
+        return jsonify({'message': 'Start date and end date are required'}), 400
+    try:
+        start_date = datetime.strptime(start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(end_date, '%Y-%m-%d')
+    except ValueError:
+        return jsonify({'message': 'Invalid date format, use YYYY-MM-DD'}), 400
+
+    session = Session(bind=engine)
+    expenses = session.query(Receipt).filter(
+        Receipt.user_id == user_id,
+        Receipt.date >= start_date,
+        Receipt.date <= end_date
+    ).all()
+    session.close()
+
+    # Prepare data for chart
+    chart_data = {}
+    for receipt in expenses:
+        category = receipt.category
+        chart_data[category] = chart_data.get(category, 0) + receipt.total
+
+    # Format data for chart rendering
+    categories = list(chart_data.keys())
+    values = [chart_data[category] for category in categories]
+
+    return jsonify({'categories': categories, 'values': values})
+
 if __name__ == '__main__':                                                                                                                                                              │
     app.run(debug=True)
